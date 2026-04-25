@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MOSS-SoundEffect — Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0A0E1A;
+    color: #F4F6FB;
+    font-family: 'Geist', sans-serif;
+    min-height: 100vh;
+    padding: 48px 40px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .header { margin-bottom: 32px; }
+  .eyebrow {
+    font-family: 'Geist Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #8B95A7;
+    margin-bottom: 8px;
+  }
+  h1 {
+    font-family: 'Instrument Serif', serif;
+    font-size: 1.75rem;
+    font-weight: 400;
+    color: #F4F6FB;
+    line-height: 1.2;
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    font-size: 14px;
+    color: #8B95A7;
+    max-width: 580px;
+  }
+  .diagram-wrap {
+    background: #1A2033;
+    border: 1px solid rgba(244,246,251,0.12);
+    border-radius: 8px;
+    padding: 4px;
+    overflow-x: auto;
+    margin-bottom: 28px;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr 0.9fr;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .card {
+    background: #1A2033;
+    border: 1px solid rgba(244,246,251,0.12);
+    border-radius: 6px;
+    padding: 20px;
+  }
+  .card-eyebrow {
+    font-family: 'Geist Mono', monospace;
+    font-size: 8px;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #8B95A7;
+    margin-bottom: 12px;
+  }
+  .card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .dot-accent { background: #00E5FF; }
+  .dot-muted  { background: #B8C2D4; }
+  .dot-link   { background: #8B5CF6; }
+  .card h3 { font-size: 14px; font-weight: 600; color: #F4F6FB; }
+  .card ul  { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .card li  {
+    font-size: 13px; color: #B8C2D4;
+    padding-left: 12px; position: relative;
+  }
+  .card li::before { content: '–'; position: absolute; left: 0; color: #8B95A7; }
+  .mono { font-family: 'Geist Mono', monospace; font-size: 11px; color: #8B95A7; }
+  footer {
+    border-top: 1px solid rgba(184,194,212,0.25);
+    padding-top: 16px;
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    color: #8B95A7;
+    letter-spacing: 0.06em;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <p class="eyebrow">Architecture · MOSS-SoundEffect</p>
+  <h1>RunPod Serverless Worker</h1>
+  <p class="subtitle">Text-to-sound pipeline on RunPod GPU infrastructure — request handling, autoregressive inference, and S3 delivery.</p>
+</div>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 900 492" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;">
+  <defs>
+    <marker id="arr"        markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#B8C2D4"/>
+    </marker>
+    <marker id="arr-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#00E5FF"/>
+    </marker>
+    <marker id="arr-link"   markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#8B5CF6"/>
+    </marker>
+  </defs>
+
+  <!-- bg -->
+  <rect width="900" height="492" fill="#1A2033"/>
+
+  <!-- ── Network Volume boundary (drawn first, behind everything) ── -->
+  <rect x="132" y="312" width="700" height="100" rx="6"
+        fill="rgba(184,194,212,0.04)" stroke="#8B95A7" stroke-width="0.8"
+        stroke-dasharray="6,4"/>
+  <!-- boundary label mask + text -->
+  <rect x="148" y="306" width="124" height="14" rx="2" fill="#1A2033"/>
+  <text x="210" y="317" fill="#8B95A7" font-size="8"
+        font-family="'Geist Mono',monospace" text-anchor="middle"
+        letter-spacing="0.14em">NETWORK VOLUME</text>
+
+  <!-- ── Arrows (before boxes) ── -->
+
+  <!-- A1: Client → Handler -->
+  <line x1="112" y1="184" x2="148" y2="184"
+        stroke="#B8C2D4" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- A2: Handler → Inference Engine (accent) -->
+  <line x1="296" y1="184" x2="348" y2="184"
+        stroke="#00E5FF" stroke-width="1" marker-end="url(#arr-accent)"/>
+  <rect x="302" y="172" width="40" height="11" rx="2" fill="#1A2033"/>
+  <text x="322" y="181" fill="#8B95A7" font-size="8"
+        font-family="'Geist Mono',monospace" text-anchor="middle"
+        letter-spacing="0.06em">INFER</text>
+
+  <!-- A3: Inference Engine → MOSS-SoundEffect (accent, curves up-right) -->
+  <path d="M 504 164 C 528 164 528 150 556 150"
+        stroke="#00E5FF" stroke-width="1" fill="none" marker-end="url(#arr-accent)"/>
+
+  <!-- A4: MOSS-SoundEffect → Audio Tokenizer -->
+  <line x1="636" y1="180" x2="636" y2="200"
+        stroke="#B8C2D4" stroke-width="1" marker-end="url(#arr)"/>
+  <rect x="644" y="185" width="28" height="11" rx="2" fill="#1A2033"/>
+  <text x="658" y="194" fill="#8B95A7" font-size="8"
+        font-family="'Geist Mono',monospace" text-anchor="middle"
+        letter-spacing="0.06em">RVQ</text>
+
+  <!-- A5: Audio Tokenizer → S3 (link-violet, curves up-right) -->
+  <path d="M 716 228 C 744 228 744 186 760 186"
+        stroke="#8B5CF6" stroke-width="1" fill="none" marker-end="url(#arr-link)"/>
+  <rect x="722" y="203" width="28" height="11" rx="2" fill="#1A2033"/>
+  <text x="736" y="212" fill="#8B5CF6" font-size="8"
+        font-family="'Geist Mono',monospace" text-anchor="middle"
+        letter-spacing="0.06em">WAV</text>
+
+  <!-- A6: HuggingFace Hub → MOSS (dashed, first-boot) -->
+  <line x1="640" y1="76" x2="640" y2="120"
+        stroke="#8B95A7" stroke-width="0.8" stroke-dasharray="4,3"
+        marker-end="url(#arr)"/>
+  <rect x="612" y="92" width="56" height="11" rx="2" fill="#1A2033"/>
+  <text x="640" y="101" fill="#8B95A7" font-size="8"
+        font-family="'Geist Mono',monospace" text-anchor="middle"
+        letter-spacing="0.06em">DOWNLOAD</text>
+
+  <!-- ── Nodes ── -->
+
+  <!-- 1. Client (input) -->
+  <rect x="16" y="160" width="96" height="48" rx="6" fill="#1A2033"/>
+  <rect x="16" y="160" width="96" height="48" rx="6"
+        fill="rgba(184,194,212,0.10)" stroke="#8B95A7" stroke-width="1"/>
+  <rect x="24" y="166" width="36" height="12" rx="2"
+        fill="transparent" stroke="rgba(139,149,167,0.40)" stroke-width="0.8"/>
+  <text x="42" y="175" fill="rgba(139,149,167,0.8)" font-size="7"
+        font-family="'Geist Mono',monospace" text-anchor="middle"
+        letter-spacing="0.08em">CLIENT</text>
+  <text x="64" y="192" fill="#F4F6FB" font-size="12" font-weight="600"
+        font-family="'Geist',sans-serif" text-anchor="middle">Client</text>
+
+  <!-- 2. RunPod Handler (backend) -->
+  <rect x="148" y="144" width="148" height="80" rx="6" fill="#1A2033"/>
+  <rect x="148" y="144" width="148" height="80" rx="6"
+        fill="rgba(244,246,251,0.04)" stroke="#F4F6FB" stroke-width="1"/>
+  <rect x="156" y="150" width="44" height="12" rx="2"
+        fill="transparent" stroke="rgba(244,246,251,0.30)" stroke-width="0.8"/>
+  <text x="178" y="159" fill="rgba(244,246,251,0.70)" font-size="7"
+        font-family="'Geist Mono',monospace" text-anchor="middle"
+        letter-spacing="0.08em">HANDLER</text>
+  <text x="222" y="178" fill="#F4F6FB" font-size="12" font-weight="600"
+        font-family="'Geist',sans-serif" text-anchor="middle">RunPod Handler</text>
+  <text x="222" y="193" fill="#8B95A7" font-size="9"
+        font-family="'Geist Mono',monospace" text-anchor="middle">handler.py</text>
+
+  <!-- 3. Inference Engine (FOCAL) -->
+  <rect x="348" y="144" width="156" height="80" rx="6" fill="#1A2033"/>
+  <rect x="348" y="144" width="156" height="80" rx="6"
+        fill="rgba(0,229,255,0.08)" stroke="#00E5FF" stroke-width="1"/>
+  <rect x="356" y="150" width="40" height="12" rx="2"
+        fill="transparent" stroke="rgba(0,229,255,0.40)" stroke-width="0.8"/>
+  <text x="376" y="159" fill="rgba(0,229,255,0.80)" font-size="7"
+        font-family="'Geist Mono',monospace" text-anchor="middle"
+        letter-spacing="0.08em">ENGINE</text>
+  <text x="426" y="178" fill="#F4F6FB" font-size="12" font-weight="600"
+        font-family="'Geist',sans-serif" text-anchor="middle">Inference Engine</text>
+  <text x="426" y="193" fill="#8B95A7" font-size="9"
+        font-family="'Geist Mono',monospace" text-anchor="middle">serverless_engine.py</text>
+
+  <!-- 4. MOSS-SoundEffect (FOCAL) -->
+  <rect x="556" y="120" width="160" height="60" rx="6" fill="#1A2033"/>
+  <rect x="556" y="120" width="160" height="60" rx="6"
+        fill="rgba(0,229,255,0.08)" stroke="#00E5FF" stroke-width="1"/>
+  <rect x="564" y="126" width="36" height="12" rx="2"
+        fill="transparent" stroke="rgba(0,229,255,0.40)" stroke-width="0.8"/>
+  <text x="582" y="135" fill="rgba(0,229,255,0.80)" font-size="7"
+        font-family="'Geist Mono',monospace" text-anchor="middle"
+        letter-spacing="0.08em">MODEL</text>
+  <text x="636" y="150" fill="#F4F6FB" font-size="12" font-weight="600"
+        font-family="'Geist',sans-serif" text-anchor="middle">MOSS-SoundEffect</text>
+  <text x="636" y="164" fill="#8B95A7" font-size="9"
+        font-family="'Geist Mono',monospace" text-anchor="middle">8B · MossTTSDelay</text>
+
+  <!-- 5. Audio Tokenizer (backend) -->
+  <rect x="556" y="200" width="160" height="56" rx="6" fill="#1A2033"/>
+  <rect x="556" y="200" width="160" height="56" rx="6"
+        fill="rgba(244,246,251,0.04)" stroke="#F4F6FB" stroke-width="1"/>
+  <rect x="564" y="206" width="36" height="12" rx="2"
+        fill="transparent" stroke="rgba(244,246,251,0.30)" stroke-width="0.8"/>
+  <text x="582" y="215" fill="rgba(244,246,251,0.70)" font-size="7"
+        font-family="'Geist Mono',monospace" text-anchor="middle"
+        letter-spacing="0.08em">CODEC</text>
+  <text x="636" y="232" fill="#F4F6FB" font-size="12" font-weight="600"
+        font-family="'Geist',sans-serif" text-anchor="middle">Audio Tokenizer</text>
+  <text x="636" y="246" fill="#8B95A7" font-size="9"
+        font-family="'Geist Mono',monospace" text-anchor="middle">MOSS-Audio-Tokenizer</text>
+
+  <!-- 6. S3 Storage (store) -->
+  <rect x="760" y="160" width="112" height="52" rx="6" fill="#1A2033"/>
+  <rect x="760" y="160" width="112" height="52" rx="6"
+        fill="rgba(244,246,251,0.05)" stroke="#B8C2D4" stroke-width="1"/>
+  <rect x="768" y="166" width="20" height="12" rx="2"
+        fill="transparent" stroke="rgba(184,194,212,0.40)" stroke-width="0.8"/>
+  <text x="778" y="175" fill="rgba(184,194,212,0.80)" font-size="7"
+        font-family="'Geist Mono',monospace" text-anchor="middle"
+        letter-spacing="0.08em">S3</text>
+  <text x="816" y="184" fill="#F4F6FB" font-size="12" font-weight="600"
+        font-family="'Geist',sans-serif" text-anchor="middle">S3 Storage</text>
+  <text x="816" y="199" fill="#8B95A7" font-size="9"
+        font-family="'Geist Mono',monospace" text-anchor="middle">presigned URL</text>
+
+  <!-- 7. HuggingFace Hub (external) -->
+  <rect x="564" y="24" width="152" height="52" rx="6" fill="#1A2033"/>
+  <rect x="564" y="24" width="152" height="52" rx="6"
+        fill="rgba(244,246,251,0.03)" stroke="rgba(244,246,251,0.25)" stroke-width="0.8"/>
+  <rect x="572" y="30" width="52" height="12" rx="2"
+        fill="transparent" stroke="rgba(244,246,251,0.18)" stroke-width="0.8"/>
+  <text x="598" y="39" fill="rgba(244,246,251,0.45)" font-size="7"
+        font-family="'Geist Mono',monospace" text-anchor="middle"
+        letter-spacing="0.08em">EXTERNAL</text>
+  <text x="640" y="52" fill="rgba(244,246,251,0.65)" font-size="12" font-weight="600"
+        font-family="'Geist',sans-serif" text-anchor="middle">HuggingFace Hub</text>
+  <text x="640" y="66" fill="#8B95A7" font-size="9"
+        font-family="'Geist Mono',monospace" text-anchor="middle">first-boot only</text>
+
+  <!-- ── Volume contents ── -->
+  <rect x="168" y="336" width="64" height="28" rx="4" fill="#1A2033"/>
+  <rect x="168" y="336" width="64" height="28" rx="4"
+        fill="rgba(244,246,251,0.05)" stroke="#B8C2D4" stroke-width="0.8"/>
+  <text x="200" y="354" fill="#B8C2D4" font-size="9"
+        font-family="'Geist Mono',monospace" text-anchor="middle">src/</text>
+
+  <rect x="400" y="336" width="64" height="28" rx="4" fill="#1A2033"/>
+  <rect x="400" y="336" width="64" height="28" rx="4"
+        fill="rgba(244,246,251,0.05)" stroke="#B8C2D4" stroke-width="0.8"/>
+  <text x="432" y="354" fill="#B8C2D4" font-size="9"
+        font-family="'Geist Mono',monospace" text-anchor="middle">venv/</text>
+
+  <rect x="636" y="336" width="72" height="28" rx="4" fill="#1A2033"/>
+  <rect x="636" y="336" width="72" height="28" rx="4"
+        fill="rgba(244,246,251,0.05)" stroke="#B8C2D4" stroke-width="0.8"/>
+  <text x="672" y="354" fill="#B8C2D4" font-size="9"
+        font-family="'Geist Mono',monospace" text-anchor="middle">models/</text>
+
+  <!-- ── Legend ── -->
+  <line x1="28" y1="432" x2="872" y2="432"
+        stroke="rgba(244,246,251,0.12)" stroke-width="0.8"/>
+  <text x="28" y="444" fill="#8B95A7" font-size="8"
+        font-family="'Geist Mono',monospace" letter-spacing="0.14em">LEGEND</text>
+
+  <!-- focal -->
+  <rect x="100" y="436" width="12" height="12" rx="2"
+        fill="rgba(0,229,255,0.08)" stroke="#00E5FF" stroke-width="1"/>
+  <text x="118" y="446" fill="#8B95A7" font-size="9"
+        font-family="'Geist',sans-serif">Focal</text>
+
+  <!-- backend -->
+  <rect x="168" y="436" width="12" height="12" rx="2"
+        fill="rgba(244,246,251,0.04)" stroke="#F4F6FB" stroke-width="1"/>
+  <text x="186" y="446" fill="#8B95A7" font-size="9"
+        font-family="'Geist',sans-serif">Service</text>
+
+  <!-- store -->
+  <rect x="244" y="436" width="12" height="12" rx="2"
+        fill="rgba(244,246,251,0.05)" stroke="#B8C2D4" stroke-width="1"/>
+  <text x="262" y="446" fill="#8B95A7" font-size="9"
+        font-family="'Geist',sans-serif">Storage</text>
+
+  <!-- external -->
+  <rect x="324" y="436" width="12" height="12" rx="2"
+        fill="rgba(244,246,251,0.03)" stroke="rgba(244,246,251,0.25)" stroke-width="0.8"/>
+  <text x="342" y="446" fill="#8B95A7" font-size="9"
+        font-family="'Geist',sans-serif">External</text>
+
+  <!-- boundary -->
+  <rect x="408" y="436" width="12" height="12" rx="2"
+        fill="rgba(184,194,212,0.04)" stroke="#8B95A7" stroke-width="0.8"
+        stroke-dasharray="4,3"/>
+  <text x="426" y="446" fill="#8B95A7" font-size="9"
+        font-family="'Geist',sans-serif">Boundary</text>
+
+  <!-- arrow: data flow -->
+  <line x1="504" y1="442" x2="524" y2="442"
+        stroke="#B8C2D4" stroke-width="1" marker-end="url(#arr)"/>
+  <text x="530" y="446" fill="#8B95A7" font-size="9"
+        font-family="'Geist',sans-serif">Data flow</text>
+
+  <!-- arrow: primary -->
+  <line x1="604" y1="442" x2="624" y2="442"
+        stroke="#00E5FF" stroke-width="1" marker-end="url(#arr-accent)"/>
+  <text x="630" y="446" fill="#8B95A7" font-size="9"
+        font-family="'Geist',sans-serif">Primary</text>
+
+  <!-- arrow: upload -->
+  <line x1="692" y1="442" x2="712" y2="442"
+        stroke="#8B5CF6" stroke-width="1" marker-end="url(#arr-link)"/>
+  <text x="718" y="446" fill="#8B95A7" font-size="9"
+        font-family="'Geist',sans-serif">Upload</text>
+
+  <!-- arrow: optional -->
+  <line x1="780" y1="442" x2="800" y2="442"
+        stroke="#8B95A7" stroke-width="0.8" stroke-dasharray="4,3"
+        marker-end="url(#arr)"/>
+  <text x="806" y="446" fill="#8B95A7" font-size="9"
+        font-family="'Geist',sans-serif">Optional</text>
+
+</svg>
+</div>
+
+<div class="cards">
+  <div class="card">
+    <p class="card-eyebrow">Request Pipeline</p>
+    <div class="card-header">
+      <span class="dot dot-accent"></span>
+      <h3>Inference Flow</h3>
+    </div>
+    <ul>
+      <li>Client sends <span class="mono">text</span> + optional <span class="mono">duration_seconds</span></li>
+      <li>Handler validates input and converts duration to RVQ tokens <span class="mono">(1s ≈ 12.5 tokens)</span></li>
+      <li>Engine loads model lazily on first request, cached for subsequent requests</li>
+      <li>MOSS-SoundEffect generates tokens; Audio Tokenizer decodes to 24kHz waveform</li>
+      <li>WAV uploaded to S3 — presigned URL returned in response</li>
+    </ul>
+  </div>
+  <div class="card">
+    <p class="card-eyebrow">Resilience</p>
+    <div class="card-header">
+      <span class="dot dot-muted"></span>
+      <h3>OOM Handling</h3>
+    </div>
+    <ul>
+      <li>Auto-caps <span class="mono">max_new_tokens</span> on ≤24GB GPUs</li>
+      <li>One-shot retry at lower token limit after CUDA OOM</li>
+      <li>Audio tokenizer offloaded to CPU on preprocessing OOM, restored after</li>
+      <li>Model source: RunPod HF cache → local volume → HuggingFace Hub</li>
+    </ul>
+  </div>
+  <div class="card">
+    <p class="card-eyebrow">Persistence</p>
+    <div class="card-header">
+      <span class="dot dot-link"></span>
+      <h3>Network Volume</h3>
+    </div>
+    <ul>
+      <li>Deps installed once to <span class="mono">/runpod-volume/moss-sfx/</span></li>
+      <li>Sentinel file prevents reinstall on subsequent cold starts</li>
+      <li>Handler files refreshed from Docker image on every boot</li>
+    </ul>
+  </div>
+</div>
+
+<footer>
+  MOSS-SoundEffect · RunPod Serverless · OpenMOSS-Team/MOSS-SoundEffect · 8B MossTTSDelay · 24kHz WAV output
+</footer>
+
+</body>
+</html>

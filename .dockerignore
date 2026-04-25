@@ -1,0 +1,40 @@
+# Tool / IDE metadata
+.claude/
+.codemap/
+.serena/
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Docs and assets (not needed in image)
+docs/
+README.md
+
+# Secrets / environment
+.env
+.env.*
+
+# Logs
+*.log
+logs/
+
+# Output audio
+*.wav
+*.mp3
+*.ogg
+output_audio/
+
+# OS
+.DS_Store
+Thumbs.db
