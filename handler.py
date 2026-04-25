@@ -6,7 +6,7 @@ import io
 import time
 import traceback
 import wave
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -149,26 +149,22 @@ def _parse_int(value: Any, name: str, lo: int, hi: int) -> int:
     return v
 
 
-def handler(event: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
+def handler(event: Dict[str, Any]) -> Dict[str, Any]:
     job_input = event.get("input", {})
 
     if job_input.get("action") == "health_check":
-        yield handle_health_check()
-        return
+        return handle_health_check()
 
     if not config.validate():
-        yield {"error": "Server misconfigured", "error_type": "ConfigurationError"}
-        return
+        return {"error": "Server misconfigured", "error_type": "ConfigurationError"}
 
     # --- text ---
     text = job_input.get("text", "")
     if not isinstance(text, str) or not text.strip():
-        yield {"error": "text is required and must be a non-empty string", "error_type": "ValueError"}
-        return
+        return {"error": "text is required and must be a non-empty string", "error_type": "ValueError"}
     text = text.strip()
     if len(text) > 2000:
-        yield {"error": f"text too long (max 2000 chars, got {len(text)})", "error_type": "ValueError"}
-        return
+        return {"error": f"text too long (max 2000 chars, got {len(text)})", "error_type": "ValueError"}
 
     # --- duration_seconds → tokens ---
     tokens: Optional[int] = None
@@ -177,15 +173,12 @@ def handler(event: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
         try:
             dur = float(raw_duration)
         except (TypeError, ValueError):
-            yield {"error": "duration_seconds must be a number", "error_type": "ValueError"}
-            return
+            return {"error": "duration_seconds must be a number", "error_type": "ValueError"}
         if dur <= 0:
-            yield {"error": "duration_seconds must be greater than 0", "error_type": "ValueError"}
-            return
+            return {"error": "duration_seconds must be greater than 0", "error_type": "ValueError"}
         max_dur = config.max_duration_seconds
         if max_dur > 0 and dur > max_dur:
-            yield {"error": f"duration_seconds exceeds maximum of {max_dur}s", "error_type": "ValueError"}
-            return
+            return {"error": f"duration_seconds exceeds maximum of {max_dur}s", "error_type": "ValueError"}
         tokens = max(1, round(dur * TOKENS_PER_SECOND))
 
     # --- decoding parameters ---
@@ -211,8 +204,7 @@ def handler(event: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
             "audio_repetition_penalty", 0.8, 2.0,
         )
     except ValueError as exc:
-        yield {"error": str(exc), "error_type": "ValueError"}
-        return
+        return {"error": str(exc), "error_type": "ValueError"}
 
     session_id = str(job_input.get("session_id") or uuid4())
 
@@ -231,21 +223,21 @@ def handler(event: Dict[str, Any]) -> Generator[Dict[str, Any], None, None]:
         )
     except Exception as exc:
         log.error(f"Inference failed [{session_id}]: {exc}\n{traceback.format_exc()}")
-        yield {"error": str(exc), "error_type": type(exc).__name__}
-        return
+        return {"error": str(exc), "error_type": type(exc).__name__}
 
     elapsed = time.time() - start
     duration = audio.shape[-1] / sample_rate if sample_rate > 0 else 0.0
 
     # --- S3 upload ---
     try:
+        log.info(f"Uploading audio to S3 [{session_id}]: sample_rate={sample_rate}, duration={duration:.3f}s")
         s3_result = upload_to_s3(audio, sample_rate, session_id)
     except Exception as exc:
         log.error(f"S3 upload failed [{session_id}]: {exc}\n{traceback.format_exc()}")
-        yield {"error": f"S3 upload failed: {exc}", "error_type": type(exc).__name__}
-        return
+        return {"error": f"S3 upload failed: {exc}", "error_type": type(exc).__name__}
+    log.info(f"S3 upload complete [{session_id}]: s3_key={s3_result['s3_key']}")
 
-    yield {
+    return {
         "status": "completed",
         "filename": s3_result["filename"],
         "url": s3_result["url"],
