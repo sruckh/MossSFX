@@ -5,6 +5,7 @@ import argparse
 import io
 import time
 import traceback
+import wave
 from typing import Any, Dict, Generator, Optional
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -12,7 +13,6 @@ from uuid import uuid4
 import boto3
 import runpod
 import torch
-import torchaudio
 from botocore.config import Config as BotoConfig
 
 import config as config_module
@@ -58,7 +58,7 @@ def get_s3_client():
 def upload_to_s3(audio: torch.Tensor, sample_rate: int, session_id: str) -> Dict[str, str]:
     filename = f"{session_id}.wav"
     buf = io.BytesIO()
-    torchaudio.save(buf, audio.unsqueeze(0), sample_rate, format="wav")
+    _write_wav(buf, audio, sample_rate)
     buf.seek(0)
 
     s3 = get_s3_client()
@@ -69,6 +69,33 @@ def upload_to_s3(audio: torch.Tensor, sample_rate: int, session_id: str) -> Dict
         ExpiresIn=3600,
     )
     return {"filename": filename, "url": url, "s3_key": filename}
+
+
+def _write_wav(buf: io.BytesIO, audio: torch.Tensor, sample_rate: int) -> None:
+    waveform = audio.detach()
+    if waveform.ndim == 2:
+        if waveform.shape[0] == 1:
+            waveform = waveform.squeeze(0)
+        else:
+            waveform = waveform.transpose(0, 1)
+    elif waveform.ndim != 1:
+        raise ValueError(f"Audio tensor must be 1D or 2D, got shape {tuple(waveform.shape)}")
+
+    samples = (
+        waveform.to(device="cpu", dtype=torch.float32)
+        .clamp(-1.0, 1.0)
+        .mul(32767.0)
+        .round()
+        .to(dtype=torch.int16)
+        .contiguous()
+        .numpy()
+    )
+    channels = 1 if samples.ndim == 1 else samples.shape[1]
+    with wave.open(buf, "wb") as wav:
+        wav.setnchannels(channels)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(samples.tobytes())
 
 
 def handle_health_check() -> Dict[str, Any]:
