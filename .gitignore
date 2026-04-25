@@ -1,5 +1,6 @@
 # Tool / IDE metadata
 .claude/
+.codex
 .codemap/
 .serena/
 
