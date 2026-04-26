@@ -187,6 +187,9 @@ These match the upstream recommended hyperparameters for MOSS-SoundEffect.
 
 ### Response
 
+The worker is a standard RunPod handler, not a streaming generator. Use RunPod's normal `/run` or `/runsync`
+endpoints; successful jobs return the final S3 metadata object directly to the caller.
+
 **Success:**
 ```json
 {
@@ -235,7 +238,7 @@ These match the upstream recommended hyperparameters for MOSS-SoundEffect.
 | Container | WAV (uncompressed PCM) |
 | Sample rate | 24,000 Hz |
 | Channels | Mono |
-| Bit depth | 32-bit float (normalized to 16-bit on save) |
+| Bit depth | 16-bit signed PCM |
 | Delivery | S3 presigned URL (1-hour expiry) |
 
 ## Project Structure
